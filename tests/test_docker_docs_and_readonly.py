@@ -152,3 +152,72 @@ def test_docker_md_documents_isolation_model():
         "isolation expectations — process/network/resource isolation, NOT "
         "filesystem isolation."
     )
+
+
+# ── 5: docker_init.bash stages agent source to a writable build dir ─────────
+#
+# The :ro mount fixed in PR #2470 broke a second, less obvious surface:
+# `uv pip install "$_agent_src[all]"` invokes setuptools' egg_info build step,
+# which touches `hermes_agent.egg-info/` *inside the source tree* even under
+# PEP 517 build isolation. On a `:ro` mount this returns `EROFS` and (under
+# `set -e`) kills container startup. The fix: copy the source tree into a
+# writable tmpfs build dir, run the install against THAT, then clean up.
+#
+# This was caught the first time the Docker smoke gate ran on its own PR — a
+# real regression that 5800+ source-level pytests had no way to surface
+# because none of them invoked `docker_init.bash` against a real :ro mount.
+
+
+def test_docker_init_stages_agent_source_for_writable_install():
+    """docker_init.bash must NOT pass the raw _agent_src path to `uv pip
+    install` — that hits the :ro mount and fails. It must stage the source
+    into a writable build dir first (the staged path is used in the install
+    invocation)."""
+    src = (REPO / "docker_init.bash").read_text(encoding="utf-8")
+
+    # The fix uses a /tmp staging path that's clearly distinct from the
+    # mounted source path. Pin the staging marker.
+    assert "_stage_src=" in src, (
+        "docker_init.bash must declare a _stage_src writable build dir "
+        "before invoking `uv pip install` against the (potentially :ro) "
+        "hermes-agent source."
+    )
+
+    # The install line must reference the staged path, NOT the raw _agent_src
+    # path. The pre-fix code was:
+    #   uv pip install "$_agent_src[all]" ...
+    # The fixed code is:
+    #   uv pip install "$_stage_src[all]" ...
+    install_lines = [
+        line for line in src.splitlines()
+        if "uv pip install" in line and "[all]" in line
+    ]
+    assert install_lines, "expected an `uv pip install ...[all]` line in docker_init.bash"
+    for line in install_lines:
+        assert '"$_agent_src[all]"' not in line, (
+            "docker_init.bash invokes `uv pip install $_agent_src[all]` "
+            "directly — this fails with EROFS when the hermes-agent volume "
+            "is mounted :ro (the production multi-container default). "
+            "Use the writable $_stage_src path instead. "
+            f"Offending line: {line!r}"
+        )
+        assert "_stage_src" in line, (
+            "the `uv pip install ...[all]` line must use the staged writable "
+            f"path. Offending line: {line!r}"
+        )
+
+
+def test_docker_init_excludes_egg_info_during_staging():
+    """The staging copy must exclude pre-baked *.egg-info / build / dist
+    directories. setuptools takes a different (timestamp-update) code path
+    when one is already present in the source tree, which itself hits the
+    :ro mount through stat/utime calls. Excluding them keeps the build
+    happily on the fresh-build code path."""
+    src = (REPO / "docker_init.bash").read_text(encoding="utf-8")
+    # Either rsync --exclude= form or the cp-fallback's explicit rm -rf —
+    # accept either provided the egg-info exclusion exists.
+    assert "egg-info" in src, (
+        "docker_init.bash staging must exclude *.egg-info from the copy "
+        "to avoid setuptools' timestamp-update code path."
+    )
+
