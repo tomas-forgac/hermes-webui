@@ -103,3 +103,61 @@ def test_i18n_coverage():
     assert desc_count >= 11, f"Expected ≥11 locales, found {desc_count}"
     assert label_count == desc_count, \
         f"Label ({label_count}) and desc ({desc_count}) counts must match"
+
+
+def test_backend_rejects_chat_and_settings_in_hidden_tabs(monkeypatch, tmp_path):
+    """Server-side belt-and-suspenders: a malicious POST that tries to hide
+    `chat` or `settings` (the always-visible nav tabs) must be filtered out
+    server-side, not just client-side. The client already applies the same
+    filter at apply time, but the server should not let a tampered payload
+    persist the forbidden values."""
+    import api.config as config
+    settings_path = tmp_path / "settings.json"
+    monkeypatch.setattr(config, "SETTINGS_FILE", settings_path)
+
+    saved = config.save_settings({"hidden_tabs": ["chat", "kanban", "settings", "logs"]})
+    assert saved["hidden_tabs"] == ["kanban", "logs"], \
+        "chat and settings must be stripped server-side"
+
+    # Even an all-forbidden payload reduces to empty (not rejected — empty is fine)
+    saved = config.save_settings({"hidden_tabs": ["chat", "settings"]})
+    assert saved["hidden_tabs"] == []
+
+
+def test_profile_switch_reconciles_hidden_tabs():
+    """When a user switches profiles, the new profile's hidden_tabs value
+    must be applied — the per-profile settings.json is the source of truth,
+    not the previous profile's localStorage value. Stage-394 added a
+    /api/settings refetch in _refreshProfileSwitchBackground; verify it stays
+    wired (the API call + the _applyTabVisibility call)."""
+    bg_start = PANELS_JS.find("function _refreshProfileSwitchBackground")
+    assert bg_start >= 0, "_refreshProfileSwitchBackground not found"
+    bg_end = PANELS_JS.find("\nfunction ", bg_start + 1)
+    if bg_end < 0:
+        bg_end = bg_start + 4000
+    bg_body = PANELS_JS[bg_start:bg_end]
+    assert "/api/settings" in bg_body, \
+        "profile-switch background refresh must re-fetch settings for the new profile"
+    assert "_applyTabVisibility" in bg_body, \
+        "profile-switch background refresh must re-apply tab visibility"
+    assert "hidden_tabs" in bg_body, \
+        "profile-switch background refresh must read hidden_tabs from server response"
+
+
+def test_chip_a11y_uses_switch_role_with_aria_checked():
+    """Chips should use role=switch + aria-checked instead of plain
+    aria-pressed. The pressed/not-pressed wording is confusing for a toggle
+    that visually represents an on/off switch; role=switch + aria-checked
+    matches user mental model."""
+    render_block = PANELS_JS[PANELS_JS.find("function _renderTabVisibilityChips"):]
+    body = render_block[:render_block.find("\nfunction ", 1) or 3000]
+    assert "role" in body and "'switch'" in body, \
+        "chip should declare role='switch' for clearer screen-reader narration"
+    assert "aria-checked" in body, "chip should use aria-checked to match role=switch"
+    # Group container also has role=group + aria-labelledby
+    assert 'role="group"' in INDEX_HTML, "chip container needs role=group"
+    assert 'aria-labelledby="tabVisibilityLabel"' in INDEX_HTML, \
+        "chip container needs aria-labelledby pointing at the label"
+    # Focus-visible style exists
+    assert ".tab-visibility-chip:focus-visible" in STYLE_CSS, \
+        "chip needs a :focus-visible style for keyboard nav"

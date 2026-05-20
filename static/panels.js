@@ -4508,6 +4508,17 @@ function _refreshProfileSwitchBackground(gen){
     if (gen !== _profileSwitchGeneration) return;
     if (S.session && typeof syncTopbar === 'function') syncTopbar();
   }).catch(()=>{});
+  // Reconcile per-profile sidebar tab visibility. hidden_tabs is a per-profile
+  // appearance setting; without this fetch, Profile A's hidden-tabs choice
+  // would remain in effect under Profile B until the user opens Settings.
+  // Stage-394 follow-up to #2636 deep review.
+  Promise.resolve(api('/api/settings')).then(function(s){
+    if (gen !== _profileSwitchGeneration) return;
+    var hidden = (s && Array.isArray(s.hidden_tabs)) ? s.hidden_tabs : [];
+    hidden = hidden.filter(function(x){ return typeof x === 'string' && x.trim(); });
+    if (typeof _setHiddenTabs === 'function') _setHiddenTabs(hidden);
+    if (typeof _applyTabVisibility === 'function') _applyTabVisibility(hidden);
+  }).catch(function(){});
 }
 
 async function loadProfilesPanel() {
@@ -5167,7 +5178,12 @@ function _renderTabVisibilityChips(){
     if(isOff)chip.classList.add('chip-off');
     chip.textContent=label;
     chip.setAttribute('data-tab-panel',panel);
-    chip.setAttribute('aria-pressed',isOff?'false':'true');
+    // Use role="switch" + aria-checked instead of aria-pressed so screen
+    // readers narrate "Tasks switch on/off" (matches user mental model) rather
+    // than "Tasks toggle button pressed/not-pressed" (where the polarity is
+    // confusing because chip-off looks like the "off" state).
+    chip.setAttribute('role','switch');
+    chip.setAttribute('aria-checked',isOff?'false':'true');
     chip.onclick=function(){_toggleTabVisibilityChip(panel);};
     container.appendChild(chip);
   });

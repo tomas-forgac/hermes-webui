@@ -4515,11 +4515,18 @@ def save_settings(settings: dict) -> dict:
                 not isinstance(v, str) or not _SETTINGS_LANG_RE.match(v)
             ):
                 continue
-            # Validate hidden_tabs: must be a list of non-empty strings
+            # Validate hidden_tabs: must be a list of non-empty strings.
+            # Belt-and-suspenders strip of "chat" and "settings" so a
+            # malicious POST cannot lock the user out of the always-visible
+            # nav tabs even though the client also filters them at apply time.
+            # Stage-394 follow-up to #2636 deep review.
             if k == "hidden_tabs":
                 if not isinstance(v, list):
                     continue
-                v = [s for s in v if isinstance(s, str) and s.strip()]
+                v = [
+                    s for s in v
+                    if isinstance(s, str) and s.strip() and s not in {"chat", "settings"}
+                ]
             # Coerce bool keys
             if k in _SETTINGS_BOOL_KEYS:
                 v = bool(v)
