@@ -3,6 +3,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **PR #2731** by @Michaelyklam — Clarification prompts now include a compact Collapse/Expand control so users can temporarily shrink a blocking decision card and reread the chat context behind it before responding.
+
 ## [v0.51.114] — 2026-05-22 — Release CL (stage-407 — 1-PR — update-check recovery from remote re-tags)
 
 ### Fixed
