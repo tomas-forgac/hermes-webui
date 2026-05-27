@@ -2485,19 +2485,85 @@ function stopGatewaySSE(){
 
 let _searchDebounceTimer = null;
 let _contentSearchResults = [];  // results from /api/sessions/search content scan
+let _lastSessionSearchQuery = '';
+let _hideSearchPreviewsAfterSelect = false;
 let _serverTimeDelta = 0;       // ms offset: client clock - server clock (for clock-skew compensation)
 let _serverTz = '';              // server timezone offset string (e.g. "+0800", "+0000", "-0500")
 
+function _sessionSearchRanges(text, query){
+  const source=String(text||'');
+  const q=String(query||'').trim();
+  if(!source||!q) return [];
+  const lower=source.toLowerCase();
+  const full=q.toLowerCase();
+  const ranges=[];
+  const collect=(needle)=>{
+    if(!needle) return;
+    let from=0;
+    while(from<lower.length){
+      const idx=lower.indexOf(needle,from);
+      if(idx<0) break;
+      const end=idx+needle.length;
+      if(!ranges.some(r=>idx<r.end&&end>r.start)) ranges.push({start:idx,end});
+      from=Math.max(end,idx+1);
+    }
+  };
+  collect(full);
+  if(!ranges.length&&/\s/.test(full)){
+    const seen=new Set();
+    full.split(/\s+/).filter(Boolean).sort((a,b)=>b.length-a.length).forEach(token=>{
+      if(seen.has(token)) return;
+      seen.add(token);
+      collect(token);
+    });
+  }
+  return ranges.sort((a,b)=>a.start-b.start);
+}
+
+function _appendHighlightedText(parent, text, query, highlightClass){
+  const source=String(text||'');
+  const ranges=_sessionSearchRanges(source,query);
+  if(!ranges.length){
+    parent.appendChild(document.createTextNode(source));
+    return ranges;
+  }
+  let pos=0;
+  for(const r of ranges){
+    if(r.start>pos) parent.appendChild(document.createTextNode(source.slice(pos,r.start)));
+    const mark=document.createElement('span');
+    mark.className=highlightClass||'session-search-hit';
+    mark.textContent=source.slice(r.start,r.end);
+    parent.appendChild(mark);
+    pos=r.end;
+  }
+  if(pos<source.length) parent.appendChild(document.createTextNode(source.slice(pos)));
+  return ranges;
+}
+
+function _sessionSearchContentPreview(session, query){
+  if(!session||!query||_hideSearchPreviewsAfterSelect) return '';
+  if(session.match_type!=='content') return '';
+  const preview=String(session.match_preview||'').replace(/\s+/g,' ').trim();
+  return preview||'';
+}
+
 function filterSessions(){
   // Immediate client-side title filter (no flicker)
-  renderSessionListFromCache();
   // Debounced content search via API for message text
   const q = ($('sessionSearch').value || '').trim();
+  if(q!==_lastSessionSearchQuery){
+    _lastSessionSearchQuery=q;
+    _hideSearchPreviewsAfterSelect=false;
+  }
+  renderSessionListFromCache();
   clearTimeout(_searchDebounceTimer);
   if (!q) { _contentSearchResults = []; return; }
   _searchDebounceTimer = setTimeout(async () => {
+    const requestedQ = q;
     try {
-      const data = await api(`/api/sessions/search?q=${encodeURIComponent(q)}&content=1&depth=5`);
+      const data = await api(`/api/sessions/search?q=${encodeURIComponent(requestedQ)}&content=1&depth=5`);
+      const currentQ = ($('sessionSearch').value || '').trim();
+      if(currentQ!==requestedQ) return;
       const titleIds = new Set(_allSessions.filter(s => _sessionDisplayTitle(s).toLowerCase().includes(q.toLowerCase())).map(s=>s.session_id));
       _contentSearchResults = (data.sessions||[]).filter(s => s.match_type === 'content' && !titleIds.has(s.session_id));
       renderSessionListFromCache();
@@ -3094,7 +3160,8 @@ function renderSessionListFromCache(){
   // streaming. This runs on every list refresh to prevent memory leaks from
   // interrupted streams. (#2066)
   _purgeStaleInflightEntries();
-  const q=($('sessionSearch').value||'').toLowerCase();
+  const searchQueryRaw=($('sessionSearch').value||'').trim();
+  const q=searchQueryRaw.toLowerCase();
   const activeSidForSidebar=_activeSessionIdForSidebar();
   const titleMatches=q?_allSessions.filter(s=>_sessionDisplayTitle(s).toLowerCase().includes(q)):_allSessions;
   // Merge content matches (deduped): content matches appended after title matches
@@ -3450,7 +3517,10 @@ function renderSessionListFromCache(){
     }
     const title=document.createElement('span');
     title.className='session-title';
-    title.textContent=cleanTitle||'Untitled';
+    const displayTitle=cleanTitle||'Untitled';
+    const titleMatched=Boolean(searchQueryRaw&&displayTitle.toLowerCase().includes(searchQueryRaw.toLowerCase()));
+    if(titleMatched) _appendHighlightedText(title,displayTitle,searchQueryRaw,'session-search-hit');
+    else title.textContent=displayTitle;
     title.title=readOnly?'Read-only imported session':'Double-click to rename';
     const tsMs=_sessionTimestampMs(s);
     const ts=document.createElement('span');
@@ -3547,6 +3617,14 @@ function renderSessionListFromCache(){
       meta.className='session-meta';
       meta.textContent=metaBits.join(' · ');
       sessionText.appendChild(meta);
+    }
+    const contentPreview=titleMatched?'':_sessionSearchContentPreview(s,searchQueryRaw);
+    if(contentPreview){
+      const preview=document.createElement('div');
+      preview.className='session-search-preview';
+      preview.title=contentPreview;
+      _appendHighlightedText(preview,contentPreview,searchQueryRaw,'session-search-hit session-search-hit-preview');
+      sessionText.appendChild(preview);
     }
     if(lineageSegmentsExpanded){
       const lineageList=document.createElement('div');
@@ -3809,6 +3887,7 @@ function renderSessionListFromCache(){
             await api('/api/session/import_cli',{method:'POST',body:JSON.stringify({session_id:s.session_id})});
           }catch(e){ /* import failed -- fall through to read-only view */ }
         }
+        if(($('sessionSearch').value||'').trim()) _hideSearchPreviewsAfterSelect=true;
         await loadSession(s.session_id);renderSessionListFromCache();
         if(typeof closeMobileSidebar==='function')closeMobileSidebar();
       }, delay);

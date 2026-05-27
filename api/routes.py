@@ -6819,6 +6819,51 @@ def _handle_session_export(handler, parsed):
     return True
 
 
+def _session_search_message_text(message):
+    content = message.get("content") if isinstance(message, dict) else ""
+    if isinstance(content, list):
+        return " ".join(
+            str(part.get("text", ""))
+            for part in content
+            if isinstance(part, dict) and part.get("type") == "text"
+        )
+    return str(content or "")
+
+
+def _session_search_preview(text, query, max_len=124):
+    normalized = re.sub(r"\s+", " ", str(text or "")).strip()
+    q = re.sub(r"\s+", " ", str(query or "")).strip()
+    if not normalized or not q:
+        return ""
+    idx = normalized.lower().find(q.lower())
+    if idx < 0:
+        return ""
+
+    max_len = max(32, int(max_len or 124))
+    if len(normalized) <= max_len:
+        return normalized
+
+    context = max(12, (max_len - len(q)) // 2)
+    start = max(0, idx - context)
+    end = min(len(normalized), idx + len(q) + context)
+    if start > 0:
+        while start < idx and normalized[start] != " ":
+            start += 1
+        if start >= idx:
+            start = max(0, idx - context)
+    if end < len(normalized):
+        while end > idx + len(q) and normalized[end - 1] != " ":
+            end -= 1
+        if end <= idx + len(q):
+            end = min(len(normalized), idx + len(q) + context)
+    excerpt = normalized[start:end].strip()
+    if start > 0:
+        excerpt = "..." + excerpt
+    if end < len(normalized):
+        excerpt = excerpt + "..."
+    return excerpt
+
+
 def _handle_sessions_search(handler, parsed):
     qs = parse_qs(parsed.query)
     q = qs.get("q", [""])[0].lower().strip()
@@ -6846,15 +6891,12 @@ def _handle_sessions_search(handler, parsed):
                 sess = get_session(s["session_id"])
                 msgs = sess.messages[:depth] if depth else sess.messages
                 for m in msgs:
-                    c = m.get("content") or ""
-                    if isinstance(c, list):
-                        c = " ".join(
-                            p.get("text", "")
-                            for p in c
-                            if isinstance(p, dict) and p.get("type") == "text"
-                        )
+                    c = _session_search_message_text(m)
                     if q in str(c).lower():
                         item = dict(s, match_type="content")
+                        preview = _session_search_preview(c, q)
+                        if preview:
+                            item["match_preview"] = _redact_text(preview)
                         if isinstance(item.get("title"), str):
                             item["title"] = _redact_text(item["title"])
                         results.append(item)

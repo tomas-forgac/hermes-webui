@@ -13,6 +13,10 @@
 - Metadata-only session loads now use a cheap state summary instead of full transcript reconciliation, while still detecting real external state.db growth and ignoring restamped replay rows that would otherwise retrigger refresh polling.
 - Session transcript reconciliation now precomputes visible-duplicate lookup state instead of recomputing loose-content normalization for every state.db row, reducing long-session tail-load latency without changing the append-only merge contract.
 
+### Changed
+
+- Sidebar chat search now highlights matching title text and shows a subtle content preview for body-only matches.
+
 ## [v0.51.138] — 2026-05-25 — Release DJ (stage-batch20 — 7-PR ultra-safe batch)
 
 ### Added
