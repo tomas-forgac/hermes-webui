@@ -3,6 +3,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Passive background refreshes such as sidebar/project polling, health checks, cron-status watches, and client-event logging no longer surface generic timeout toasts; explicit user actions still show timeout errors. (Related to #3024)
+
 ## [v0.51.151] — 2026-05-28 — Release DW (stage-batch33 — 3-PR mid-risk batch: SSE reattach + title-lang + composer cap)
 
 ### Fixed
