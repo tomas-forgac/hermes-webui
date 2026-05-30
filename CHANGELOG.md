@@ -3,6 +3,12 @@
 
 ## [Unreleased]
 
+## [v0.51.177] — 2026-05-30 — Release EW (stage-batch59 — Docker smoke-test layer caching)
+
+### Changed
+
+- CI: the Docker smoke-test workflow now builds the image once and caches its layers via the GitHub Actions cache (`type=gha`), then each compose variant restores from that cache instead of rebuilding from scratch — saving ~1-3 minutes per variant. The image is still built from the PR's local Dockerfile (`load: true`), so PR changes are tested, not the released image. (Partial adoption of #3197 — the Docker half; the test-sharding half is deferred pending test-suite shard-safety work.)
+
 ## [v0.51.176] — 2026-05-30 — Release EV (stage-batch58 — sidebar attention indicators)
 
 ### Added
