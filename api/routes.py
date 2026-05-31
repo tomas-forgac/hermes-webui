@@ -8234,7 +8234,17 @@ def _handle_media(handler, parsed):
     # is inside a genuine project workspace (carve-out).
     if not _in_active_workspace:
         _under_hermes_root = any(_within_ci(target, _root) for _root in _hermes_roots)
-        if _under_hermes_root and target.name.casefold() in _deny_names_ci:
+        _name_cf = target.name.casefold()
+        # Exact secret/state basenames, plus atomic-write temp files for those
+        # (api/auth.py and api/passkeys.py write via a `tmp*.<name>.tmp` / `tmp*.tmp`
+        # sidecar then rename) — deny those suffixes too so a momentary temp file
+        # cannot be fetched. (Codex review #3234.)
+        _deny_tmp_suffixes = (".sessions.tmp", ".login_attempts.tmp",
+                              ".passkeys.tmp", ".passkey_challenges.tmp")
+        if _under_hermes_root and (
+            _name_cf in _deny_names_ci
+            or _name_cf.endswith(_deny_tmp_suffixes)
+        ):
             return bad(handler, "Path not in allowed location", 403)
     # ── end #3234 deny ───────────────────────────────────────────────────────
 
