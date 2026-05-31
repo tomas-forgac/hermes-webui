@@ -198,6 +198,22 @@ _clear_stale_pid() {
   fi
 }
 
+_pid_listens_on_port() {
+  # Best-effort check that PID $1 has a listening socket on TCP port $2.
+  # macOS (where launchd exists) ships lsof; if we can't determine ownership we
+  # return 2 ("unknown") so the caller can fall back conservatively rather than
+  # guess. Never blocks on a hard failure.
+  local pid="$1" port="$2"
+  [[ "${pid}" =~ ^[0-9]+$ && "${port}" =~ ^[0-9]+$ ]] || return 2
+  if command -v lsof >/dev/null 2>&1; then
+    if lsof -nP -p "${pid}" -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1; then
+      return 0   # PID is listening on that port → real conflict
+    fi
+    return 1     # PID is alive but NOT listening on that port → no conflict
+  fi
+  return 2       # can't determine
+}
+
 _launchd_webui_pid() {
   [[ "${HERMES_WEBUI_CTL_ALLOW_LAUNCHD_CONFLICT:-0}" == "1" ]] && return 1
   command -v launchctl >/dev/null 2>&1 || return 1
@@ -209,11 +225,24 @@ _launchd_webui_pid() {
   pid="$(printf '%s\n' "${launchd_out}" | awk '/^[[:space:]]*pid = / {print $3; exit}')"
   [[ "${pid}" =~ ^[0-9]+$ ]] || return 1
   (( pid > 0 )) || return 1
-  if _is_alive "${pid}"; then
-    printf '%s\n' "${pid}"
-    return 0
-  fi
-  return 1
+  _is_alive "${pid}" || return 1
+  # Only treat the launchd job as a conflict for the port we are about to bind.
+  # A second instance on a DIFFERENT port (e.g. HERMES_WEBUI_PORT=8788 for a
+  # test build) does not collide with the launchd-managed default and must be
+  # allowed to start (#3291 over-block fix). When port ownership can't be
+  # determined (no lsof), fall back to the conservative previous behavior of
+  # only guarding the default port so non-default ports are never wrongly blocked.
+  local want_port="${CTL_PORT:-${HERMES_WEBUI_PORT:-8787}}"
+  _pid_listens_on_port "${pid}" "${want_port}"
+  case "$?" in
+    0) printf '%s\n' "${pid}"; return 0 ;;   # launchd job listens on our port → block
+    1) return 1 ;;                            # launchd job on a different port → allow
+    *)                                        # unknown: only guard the default port
+      if [[ "${want_port}" == "8787" ]]; then
+        printf '%s\n' "${pid}"; return 0
+      fi
+      return 1 ;;
+  esac
 }
 
 start_cmd() {
