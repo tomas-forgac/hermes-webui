@@ -1069,6 +1069,10 @@ $('btnNewChat').onclick=async()=>{
      && !S.session.pending_user_message){
     $('msg').focus();closeMobileSidebar();return;
   }
+  if(typeof _restoreRememberedNewChatDraftSession==='function'
+     && await _restoreRememberedNewChatDraftSession()){
+    await renderSessionList();closeMobileSidebar();$('msg').focus();return;
+  }
   await newSession();await renderSessionList();closeMobileSidebar();$('msg').focus();
 };
 $('btnDownload').onclick=()=>{

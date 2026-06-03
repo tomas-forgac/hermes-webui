@@ -31,6 +31,57 @@ let _pendingCarryForwardSnapshot = null;
 // Debounced save — prevents hammering the server on every keystroke.
 let _draftSaveTimer = null;
 const _DRAFT_SAVE_DELAY_MS = 400;
+const NEW_CHAT_DRAFT_SESSION_KEY = 'hermes-new-chat-draft-session';
+
+function _isRestorableNewChatDraftSession(session, requireDraft=false) {
+  if (!session || !session.session_id) return false;
+  const messageCount = Number(session.message_count || 0);
+  if (messageCount !== 0) return false;
+  if (session.active_stream_id || session.pending_user_message || session.worktree_path) return false;
+  const title = session.title || 'Untitled';
+  if (title !== 'Untitled' && title !== 'New Chat') return false;
+  const activeProfile = S.activeProfile || 'default';
+  const sessionProfile = session.profile || 'default';
+  if (sessionProfile !== activeProfile) return false;
+  if (!requireDraft) return true;
+  const draft = session.composer_draft || {};
+  const text = (typeof draft.text === 'string') ? draft.text : '';
+  const files = Array.isArray(draft.files) ? draft.files : [];
+  return !!(text || files.length);
+}
+
+function _rememberNewChatDraftSession(session) {
+  if (!_isRestorableNewChatDraftSession(session)) return;
+  try { localStorage.setItem(NEW_CHAT_DRAFT_SESSION_KEY, session.session_id); } catch (_) {}
+}
+
+function _clearRememberedNewChatDraftSession(sid) {
+  if (!sid) return;
+  try {
+    if (localStorage.getItem(NEW_CHAT_DRAFT_SESSION_KEY) === sid) {
+      localStorage.removeItem(NEW_CHAT_DRAFT_SESSION_KEY);
+    }
+  } catch (_) {}
+}
+
+async function _restoreRememberedNewChatDraftSession() {
+  let sid = '';
+  try { sid = localStorage.getItem(NEW_CHAT_DRAFT_SESSION_KEY) || ''; } catch (_) { sid = ''; }
+  if (!sid || (S.session && S.session.session_id === sid)) return false;
+  try {
+    const data = await api(`/api/session?session_id=${encodeURIComponent(sid)}&messages=0&resolve_model=0`);
+    const session = data && data.session;
+    if (!_isRestorableNewChatDraftSession(session, true)) {
+      _clearRememberedNewChatDraftSession(sid);
+      return false;
+    }
+    await loadSession(sid, {skipLineageResolve:true});
+    return !!(S.session && S.session.session_id === sid);
+  } catch (_) {
+    _clearRememberedNewChatDraftSession(sid);
+    return false;
+  }
+}
 
 function _saveComposerDraft(sid, text, files) {
   if (!sid) return;
@@ -43,11 +94,11 @@ function _saveComposerDraft(sid, text, files) {
   }, _DRAFT_SAVE_DELAY_MS);
 }
 
-// Fire-and-forget immediate save (used before session switches).
+// Immediate save used before session switches.
 function _saveComposerDraftNow(sid, text, files) {
   if (!sid) return;
   clearTimeout(_draftSaveTimer);
-  api('/api/session/draft', {
+  return api('/api/session/draft', {
     method: 'POST',
     body: JSON.stringify({ session_id: sid, text: text || '', files: files || [] }),
   }).catch(() => {});
@@ -97,6 +148,7 @@ function _restoreComposerDraft(draft, targetSid, opts={}) {
 function _clearComposerDraft(sid) {
   if (!sid) return;
   clearTimeout(_draftSaveTimer);
+  _clearRememberedNewChatDraftSession(sid);
   api('/api/session/draft', {
     method: 'POST',
     body: JSON.stringify({ session_id: sid, text: '' }),
@@ -560,6 +612,7 @@ async function newSession(flash, options={}){
     S.session=data.session;S.messages=data.session.messages||[];
     if(_sessionSourceFilter==='cli') _sessionSourceFilter='webui';
     S.lastUsage={...(data.session.last_usage||{})};
+    if(!(options&&options.worktree)) _rememberNewChatDraftSession(S.session);
     if(flash)S.session._flash=true;
     try{localStorage.setItem('hermes-webui-session',S.session.session_id);}catch(_){}
     _setActiveSessionUrl(S.session.session_id);
@@ -656,7 +709,15 @@ async function loadSession(sid){
   // restored when the user switches back (#1060). Save to server now so the
   // draft survives page refresh and syncs across clients.
   if (currentSid && currentSid !== sid) {
-    _saveComposerDraftNow(currentSid, ($('msg') || {}).value || '', S.pendingFiles ? [...S.pendingFiles] : []);
+    await _saveComposerDraftNow(currentSid, ($('msg') || {}).value || '', S.pendingFiles ? [...S.pendingFiles] : []);
+    // The awaited draft save above yields the event loop. If another
+    // loadSession() started for a different session while we were waiting
+    // (rapid switch B→C), _loadingSessionId now points at that newer load —
+    // bail out before the destructive state-clearing block below so this stale
+    // continuation can't wipe S.messages / write the loading placeholder /
+    // close streams for the session the user actually landed on (#1060 guard,
+    // extended to cover the new pre-switch await).
+    if (_loadingSessionId !== sid) return;
   }
   if (currentSid !== sid || forceReload) {
     // #3306: When force-reloading the currently-active session (e.g. external
