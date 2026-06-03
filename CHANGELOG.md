@@ -3,6 +3,10 @@
 
 ## [Unreleased]
 
+### Fixed
+- `/model <name>` can now select a model that lives in the **truncated `extra_models` tail** of a large provider catalog. On catalogs with more than ~25 models (e.g. a Nous Portal subscription), the picker renders only a *featured* subset as `<option>` entries and pushes the rest into `extra_models` (`_build_nous_featured_set`, `api/config.py`). The curated flagship set carries `xiaomi/mimo-v2.5-pro` but not the bare `xiaomi/mimo-v2.5`, so the bare model existed only in the extras tail — and `cmdModel` resolved only against the rendered `<select>` options, never the full catalog. Result: `/model mimo-v2.5` could not reach the real (cheaper) `mimo-v2.5` tier — it either snapped to `-pro` (pre-#3437) or was rejected with a misleading *"did you mean mimo-v2.5-pro?"* toast (#3437), even though the model is genuinely selectable from the CLI/TUI. `cmdModel` now builds its candidate set from the full `/api/models` catalog (featured `models` + `extra_models`) via a new `_buildModelCandidates()` helper — the same complete list the CLI and the `/model` autocomplete already use — so an exact bare model in the extras tail wins via the existing exact/shortest-match logic. When the resolved model is an extras-only entry (not a rendered `<option>`), the option is injected with its provider before selection so `onchange()` persists `model` + `model_provider` end-to-end. The #3437 tier-guard is preserved: when the bare model is genuinely absent, `/model` still refuses to snap to `-pro` and offers the suggestion toast instead. `mimo-v2.5-pro` stays reachable by its full name and legit shorthand is unchanged. Verified end-to-end in a real headless browser against a synthetic Nous catalog (#3368, with @garyd9; thanks @yutaotie for confirmation).
+
+
 ## [v0.51.230] — 2026-06-03 — Release GX (stage-p14 — extract <think> blocks to m.reasoning + LLM Wiki last-writer)
 
 ### Fixed
