@@ -3,6 +3,11 @@
 
 ## [Unreleased]
 
+## [v0.51.255] — 2026-06-04 — Release HW (stage-r3 — pid-scoped turn-journal shards for multi-process safety)
+
+### Fixed
+- The turn journal (the crash-recovery backbone for session state) now writes to **pid-scoped shards** (`{sid}~{pid}.jsonl`) instead of a single shared `{sid}.jsonl`, so two processes writing concurrently (e.g. during a self-restart overlap) can't interleave-corrupt each other's large JSON lines. `read_turn_journal` merges all shards plus the legacy file and sorts events by `created_at`, so recovery is unchanged and fully backward-compatible. Terminal events are now flagged explicitly. (@rodboev)
+
 ## [v0.51.254] — 2026-06-04 — Release HV (stage-r2 — mobile/cancel/scroll fixes + custom-provider model dedup)
 
 ### Fixed
