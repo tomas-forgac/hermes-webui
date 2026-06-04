@@ -3,6 +3,21 @@
 
 ## [Unreleased]
 
+## [v0.51.253] — 2026-06-04 — Release HU (stage-r1 — low-risk batch: scroll/badge/count/test fixes + compat docs)
+
+### Fixed
+- Long streaming responses no longer snap back to the bottom on completion when you've scrolled up to read — the final DOM-replace "follow" window is tightened (1200px → 120px) so only readers still at the tail get auto-scrolled. (#3525, @TomBanksAU)
+- The topbar transcript count now distinguishes a partially-loaded long transcript ("loaded of total" using the server-side `message_count`) instead of implying the loaded tail is the full conversation, and surfaces the older-message count on the "Load earlier messages" affordance. Fully-loaded transcripts keep using the tool-row-filtered loaded count. (@ai-ag2026)
+- Sidebar rows now render messaging source badges (Telegram, Discord, etc.) as chips, not just CLI ones — the sidebar badge was still gated on `is_cli_session` after #3502 fixed the topbar. (#3502 follow-up, @rodboev)
+- The `.pre-header+pre` margin override is now scoped under `.msg-body` so it wins over `.msg-body pre`, removing the unwanted 10px gap between a file-header bar and its code block. (@Karlineal)
+
+### Tests
+- `test_ctl_script.py` now kills orphan fake-python process trees on Windows (MSYS2 signal propagation is unreliable). (#3537, @rodboev)
+- conftest `_discover_python` now checks the Windows venv layout (`Scripts/python.exe`) so the test server doesn't silently start with the wrong Python. (#3577, @rodboev)
+
+### Docs
+- Documented an explicit WebUI–Agent compatibility policy: separate the displayed WebUI runtime version from the tested/pinned pair compatibility contract, and clarified Docker upgrade pinning guidance to keep releases aligned until the stable boundary work in #1925/#2491 lands. (#3232, @franksong2702)
+
 ## [v0.51.252] — 2026-06-03 — Release HT (stage-q24 — selection-bleed fix + compatibility docs)
 
 ### Fixed

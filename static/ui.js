@@ -2871,7 +2871,11 @@ function _messageBottomDistance(){
   return el.scrollHeight-el.scrollTop-el.clientHeight;
 }
 function _shouldFollowMessagesOnDomReplace(){
-  return !_messageUserUnpinned && (_scrollPinned || _isMessagePaneNearBottom(1200));
+  // Final stream settlement replaces the live DOM with persisted messages. Keep
+  // following only for users who are still pinned or effectively at the tail.
+  // A broad near-bottom window causes long answers/mobile readers who scroll up
+  // a little to read mid-stream to get snapped back to the bottom on completion.
+  return !_messageUserUnpinned && (_scrollPinned || _isMessagePaneNearBottom(120));
 }
 function _settleMessageScrollToBottom(force){
   // Markdown post-processing (Prism, tables, Mermaid/KaTeX/PDF placeholders)
@@ -5487,6 +5491,24 @@ async function checkInflightOnBoot(sid) {
   } catch(e) { clearInflight(); }
 }
 
+function _topbarLoadedMessageCount(){
+  const messages=Array.isArray(S.messages)?S.messages:[];
+  return messages.filter(m=>m&&m.role&&m.role!=='tool').length;
+}
+function _topbarMessageMetaText(){
+  const loadedCount=_topbarLoadedMessageCount();
+  const totalCount=Number(S.session&&S.session.message_count);
+  const hasTotal=Number.isFinite(totalCount)&&totalCount>0;
+  const isTruncated=!!(typeof _messagesTruncated!=='undefined'&&_messagesTruncated);
+  if(isTruncated&&hasTotal&&totalCount>loadedCount){
+    return `${loadedCount} loaded of ${totalCount} messages`;
+  }
+  // Fully loaded: use the tool-row-filtered loadedCount, NOT the raw server
+  // total (api/routes.py sets message_count to len(_all_msgs), which counts
+  // role:"tool" rows the topbar has always excluded). Only the truncated
+  // branch above surfaces the raw server total, and only as "loaded of total".
+  return t('n_messages',loadedCount);
+}
 function syncTopbar(){
   if(!S.session){
     document.title=assistantDisplayName();
@@ -5510,13 +5532,12 @@ function syncTopbar(){
   const sessionTitle=S.session.title||t('untitled');
   const _topbarTitle=$('topbarTitle');if(_topbarTitle)_topbarTitle.textContent=sessionTitle;
   document.title=sessionTitle+' \u2014 '+assistantDisplayName();
-  const vis=S.messages.filter(m=>m&&m.role&&m.role!=='tool');
   const _topbarMeta=$('topbarMeta');
   if(_topbarMeta){
     let sourceLabel=(S.session&&(S.session.source_label||S.session.source_tag||S.session.raw_source))||'';
     // Recovered sidecars stamp source_label 'WebUI' (api/session_recovery.py); don't badge a native session as its own source (#3338).
     if(/^webui$/i.test(sourceLabel)) sourceLabel='';
-    const metaText=t('n_messages',vis.length);
+    const metaText=_topbarMessageMetaText();
     _topbarMeta.textContent=metaText;
     if(sourceLabel){
       const badge=document.createElement('span');
@@ -6665,6 +6686,7 @@ function renderMessages(options){
   const renderVisWithIdx=visWithIdx.slice(windowStart);
   const firstRenderedRawIdx=renderVisWithIdx.length?renderVisWithIdx[0].rawIdx:Infinity;
   const hasServerOlder=!!(typeof _messagesTruncated!=='undefined' && _messagesTruncated && S.messages.length>0);
+  const serverOlderCount=hasServerOlder&&Number.isFinite(Number(_oldestIdx))?Math.max(0,Number(_oldestIdx)):0;
   if(typeof _applySessionNavigationPrefs==='function') _applySessionNavigationPrefs();
   if(hiddenBeforeCount>0 || hasServerOlder){
     const indicator=document.createElement('button');
@@ -6673,7 +6695,9 @@ function renderMessages(options){
     indicator.className='load-older-indicator message-window-load-earlier';
     indicator.textContent=hiddenBeforeCount>0
       ? `Load earlier messages (${hiddenBeforeCount} hidden)`
-      : (typeof t==='function'?t('load_older_messages'):'Load earlier messages');
+      : (serverOlderCount>0
+        ? `Load earlier messages (${serverOlderCount} older)`
+        : (typeof t==='function'?t('load_older_messages'):'Load earlier messages'));
     indicator.onclick=()=>{
       if(hiddenBeforeCount>0) _showEarlierRenderedMessages();
       else if(typeof _loadOlderMessages==='function') _loadOlderMessages();
