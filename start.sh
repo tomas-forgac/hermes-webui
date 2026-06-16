@@ -120,21 +120,34 @@ case "${_hermes_host}" in
   0.0.0.0|""|::|"[::]") _hermes_probe_host="127.0.0.1" ;;
   *) _hermes_probe_host="${_hermes_host}" ;;
 esac
-_hermes_health_url="http://${_hermes_probe_host}:${_hermes_port}/health"
+
+# Detect TLS: if both cert and key env vars are set, probe via https.
+if [[ -n "${HERMES_WEBUI_TLS_CERT:-}" && -n "${HERMES_WEBUI_TLS_KEY:-}" ]]; then
+  _hermes_scheme="https"
+else
+  _hermes_scheme="http"
+fi
+_hermes_health_url="${_hermes_scheme}://${_hermes_probe_host}:${_hermes_port}/health"
 
 # Best-effort probe. If neither curl nor wget is present we skip the check and
 # fall through to the normal launch (unchanged behavior). Short 2s timeout so a
 # normal cold start is not delayed.
+# When TLS is enabled, skip certificate verification (-k / --no-check-certificate)
+# because the health probe targets localhost and self-signed certs are common.
 _hermes_already_up=""
 if command -v curl >/dev/null 2>&1; then
-  _hermes_already_up="$(curl -fsS --max-time 2 "${_hermes_health_url}" 2>/dev/null || true)"
+  _hermes_curl_opts=(--max-time 2)
+  [[ "${_hermes_scheme}" == "https" ]] && _hermes_curl_opts+=(-k)
+  _hermes_already_up="$(curl -fsS "${_hermes_curl_opts[@]}" "${_hermes_health_url}" 2>/dev/null || true)"
 elif command -v wget >/dev/null 2>&1; then
-  _hermes_already_up="$(wget -qO- --timeout=2 --tries=1 "${_hermes_health_url}" 2>/dev/null || true)"
+  _hermes_wget_opts=(--timeout=2 --tries=1)
+  [[ "${_hermes_scheme}" == "https" ]] && _hermes_wget_opts+=(--no-check-certificate)
+  _hermes_already_up="$(wget -qO- "${_hermes_wget_opts[@]}" "${_hermes_health_url}" 2>/dev/null || true)"
 fi
 
 if [[ -n "${_hermes_already_up}" ]]; then
   cat >&2 <<EOF
-[==] Hermes WebUI is already running at http://${_hermes_probe_host}:${_hermes_port}
+[==] Hermes WebUI is already running at ${_hermes_scheme}://${_hermes_probe_host}:${_hermes_port}
      The server was NOT started again (start.sh does not double-start).
 
      If you need to restart the server, do the following:

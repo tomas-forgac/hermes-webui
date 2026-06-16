@@ -281,14 +281,34 @@ def install_hermes_agent() -> None:
     )
 
 
+def _tls_enabled() -> bool:
+    """Return True when the TLS cert and key env vars are both set."""
+    return bool(
+        os.environ.get("HERMES_WEBUI_TLS_CERT", "").strip()
+        and os.environ.get("HERMES_WEBUI_TLS_KEY", "").strip()
+    )
+
+
+def _scheme() -> str:
+    return "https" if _tls_enabled() else "http"
+
+
 def wait_for_health(url: str, timeout: float = 25.0) -> bool:
     deadline = time.time() + timeout
     # Validate URL scheme to prevent file:// and other dangerous schemes
     if not url.startswith(("http://", "https://")):
         raise ValueError(f"Invalid health check URL: {url}")
+    # When TLS is enabled the server may use a self-signed certificate.
+    # Skip verification for this localhost health probe (same as curl -k).
+    ssl_ctx = None
+    if url.startswith("https://"):
+        import ssl
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
     while time.time() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=2) as response:  # nosec B310
+            with urllib.request.urlopen(url, timeout=2, context=ssl_ctx) as response:  # nosec B310
                 if b'"status": "ok"' in response.read():
                     return True
         except Exception:
@@ -432,7 +452,7 @@ def main() -> int:
     foreground_reason = "--foreground" if args.foreground else _detect_supervisor()
     if foreground_reason:
         info(
-            f"Starting Hermes Web UI on http://{args.host}:{args.port} "
+            f"Starting Hermes Web UI on {_scheme()}://{args.host}:{args.port} "
             f"(foreground mode: {foreground_reason})"
         )
         try:
@@ -472,7 +492,7 @@ def main() -> int:
     # /health, then return. Suitable for an interactive `bash start.sh` run.
     log_path = state_dir / f"bootstrap-{args.port}.log"
 
-    info(f"Starting Hermes Web UI on http://{args.host}:{args.port}")
+    info(f"Starting Hermes Web UI on {_scheme()}://{args.host}:{args.port}")
     with log_path.open("ab") as log_file:
         proc = subprocess.Popen(
             [python_exe, server_path],
@@ -483,7 +503,7 @@ def main() -> int:
             start_new_session=True,
         )
 
-    health_url = f"http://{args.host}:{args.port}/health"
+    health_url = f"{_scheme()}://{args.host}:{args.port}/health"
     if not wait_for_health(health_url):
         raise RuntimeError(
             f"Web UI did not become healthy at {health_url}. "
@@ -491,9 +511,9 @@ def main() -> int:
         )
 
     app_url = (
-        f"http://localhost:{args.port}"
+        f"{_scheme()}://localhost:{args.port}"
         if args.host in ("127.0.0.1", "localhost")
-        else f"http://{args.host}:{args.port}"
+        else f"{_scheme()}://{args.host}:{args.port}"
     )
     info(f"Web UI is ready: {app_url}")
     info(f"Log file: {log_path}")
