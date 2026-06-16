@@ -954,14 +954,16 @@ for (const name of [
 
 renderModelDropdown();
 
-// Find the group wrapper and check its display style
-let groupWrapperHidden = false;
-let foundWrapper = false;
+// Target the errored group's wrapper specifically by data-group attribute.
+// A plain walk() that overwrites on every .model-group-body ends on the last
+// wrapper in DOM order (the selected/open Anthropic group), giving a false
+// "open" result regardless of whether _hasEndpointError fired.
+let errWrap = null;
 const walk = (node) => {
   for (const child of (node.children || [])) {
-    if (child.className && child.className.includes('model-group-body')) {
-      foundWrapper = true;
-      groupWrapperHidden = child.style.display === 'none';
+    if (child.className && child.className.includes('model-group-body') &&
+        child.dataset && child.dataset.group === 'openrouter') {
+      errWrap = child;
     }
     if (child.children && child.children.length) walk(child);
   }
@@ -969,8 +971,8 @@ const walk = (node) => {
 walk(dropdown);
 
 process.stdout.write(JSON.stringify({
-  foundWrapper: foundWrapper,
-  groupRendersOpen: foundWrapper && !groupWrapperHidden,
+  foundWrapper: !!errWrap,
+  groupRendersOpen: !!errWrap && errWrap.style.display !== 'none',
 }));
 """
 
