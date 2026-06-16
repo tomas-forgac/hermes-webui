@@ -400,18 +400,17 @@ stop_cmd() {
 }
 
 _health_line() {
-  local host="$1" port="$2" url result scheme curl_opts
+  local host="$1" port="$2" url result scheme
+  local curl_opts=()
   if [[ -n "${HERMES_WEBUI_TLS_CERT:-}" && -n "${HERMES_WEBUI_TLS_KEY:-}" ]]; then
     scheme="https"
-    curl_opts="-k"
+    curl_opts+=(-k)
   else
     scheme="http"
-    curl_opts=""
   fi
   url="${scheme}://${host}:${port}/health"
   if command -v curl >/dev/null 2>&1; then
-    # shellcheck disable=SC2086
-    if result="$(curl -fsS --max-time 2 ${curl_opts} "${url}" 2>/dev/null)"; then
+    if result="$(curl -fsS --max-time 2 "${curl_opts[@]}" "${url}" 2>/dev/null)"; then
       if command -v python3 >/dev/null 2>&1; then
         printf '%s' "${result}" | python3 -c 'import json,sys
 try:
