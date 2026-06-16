@@ -5,7 +5,7 @@
 
 ### Fixed
 
-- **Health checks now use HTTPS when TLS is enabled.** `start.sh`, `ctl.sh`, `bootstrap.py`, and the Dockerfile `HEALTHCHECK` all hardcoded `http://` for health probes, causing failures when the server was configured with `HERMES_WEBUI_TLS_CERT` / `HERMES_WEBUI_TLS_KEY`. All four sites now detect TLS and probe via `https://` with certificate verification disabled for the localhost health check, so self-signed certificates work without error.
+- **Health checks now use HTTPS when TLS is enabled.** `start.sh`, `ctl.sh`, `bootstrap.py`, and the Dockerfile `HEALTHCHECK` all hardcoded `http://` for health probes, causing failures when the server was configured with `HERMES_WEBUI_TLS_CERT` / `HERMES_WEBUI_TLS_KEY`. All four sites now detect TLS and probe via `https://` with certificate verification disabled for the localhost health check, so self-signed certificates work without error. When certificate verification is skipped, the scripts now log `certificate verification skipped (localhost self-signed)` for operator visibility.
 
 ## [v0.51.461] — 2026-06-16 — Release PV (custom-provider keys recognized from the pool)
 

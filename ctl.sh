@@ -405,12 +405,13 @@ _health_line() {
   if [[ -n "${HERMES_WEBUI_TLS_CERT:-}" && -n "${HERMES_WEBUI_TLS_KEY:-}" ]]; then
     scheme="https"
     curl_opts+=(-k)
+    echo "[ctl] TLS health probe: certificate verification skipped (localhost self-signed)" >&2
   else
     scheme="http"
   fi
   url="${scheme}://${host}:${port}/health"
   if command -v curl >/dev/null 2>&1; then
-    if result="$(curl -fsS --max-time 2 "${curl_opts[@]}" "${url}" 2>/dev/null)"; then
+    if result="$(curl -fsS --max-time 2 ${curl_opts[@]+"${curl_opts[@]}"} "${url}" 2>/dev/null)"; then
       if command -v python3 >/dev/null 2>&1; then
         printf '%s' "${result}" | python3 -c 'import json,sys
 try:

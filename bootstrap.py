@@ -306,6 +306,7 @@ def wait_for_health(url: str, timeout: float = 25.0) -> bool:
         ssl_ctx = ssl.create_default_context()
         ssl_ctx.check_hostname = False
         ssl_ctx.verify_mode = ssl.CERT_NONE
+        info("TLS health probe: certificate verification skipped (localhost self-signed)")
     while time.time() < deadline:
         try:
             with urllib.request.urlopen(url, timeout=2, context=ssl_ctx) as response:  # nosec B310

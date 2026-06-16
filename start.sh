@@ -137,11 +137,17 @@ _hermes_health_url="${_hermes_scheme}://${_hermes_probe_host}:${_hermes_port}/he
 _hermes_already_up=""
 if command -v curl >/dev/null 2>&1; then
   _hermes_curl_opts=(--max-time 2)
-  [[ "${_hermes_scheme}" == "https" ]] && _hermes_curl_opts+=(-k)
+  if [[ "${_hermes_scheme}" == "https" ]]; then
+    _hermes_curl_opts+=(-k)
+    echo "[start] TLS health probe: certificate verification skipped (localhost self-signed)" >&2
+  fi
   _hermes_already_up="$(curl -fsS "${_hermes_curl_opts[@]}" "${_hermes_health_url}" 2>/dev/null || true)"
 elif command -v wget >/dev/null 2>&1; then
   _hermes_wget_opts=(--timeout=2 --tries=1)
-  [[ "${_hermes_scheme}" == "https" ]] && _hermes_wget_opts+=(--no-check-certificate)
+  if [[ "${_hermes_scheme}" == "https" ]]; then
+    _hermes_wget_opts+=(--no-check-certificate)
+    echo "[start] TLS health probe: certificate verification skipped (localhost self-signed)" >&2
+  fi
   _hermes_already_up="$(wget -qO- "${_hermes_wget_opts[@]}" "${_hermes_health_url}" 2>/dev/null || true)"
 fi
 

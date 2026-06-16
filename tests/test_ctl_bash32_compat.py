@@ -112,7 +112,7 @@ def test_no_array_iteration_without_guard_in_ctl() -> None:
     # Match every quoted-all-elements expansion outside the +alt form.
     raw_expansions = re.findall(r'"\$\{([A-Za-z_][A-Za-z0-9_]*)\[@\]\}"', src)
     # Already-allowed names (each has its own dedicated regression test above).
-    allowed = {"preserved", "CTL_BOOTSTRAP_ARGS"}
+    allowed = {"preserved", "CTL_BOOTSTRAP_ARGS", "curl_opts"}
     new_unguarded = [name for name in raw_expansions if name not in allowed]
     assert not new_unguarded, (
         "New raw `\"${{{name}[@]}}\"` array expansion(s) appeared in ctl.sh: "
