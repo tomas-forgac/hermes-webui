@@ -3,6 +3,124 @@
 
 ## [Unreleased]
 
+### Internal
+
+- **Windows pytest-harness compatibility (#3664).** Hardened the test suite to run on Windows: profile-home fallback paths are path-normalized, strict POSIX file-mode (`0o600`) assertions are gated behind `os.name != "nt"` (Linux still asserts them at full strictness), the conftest cleanup handles Windows process-tree/port teardown and the Py3.12+ `shutil.rmtree` `onexc` shim, and tests that require `fork`/`fcntl` carry `@requires_fork` / `@requires_fcntl` markers (which never skip on Linux). Test-only — no runtime or app behavior change, no Linux CI behavior change. (#4254, #4255, #4256, #4257, #4259, #4263, #4266, #4274)
+
+## [v0.51.453] — 2026-06-16 — Release PN (approval controls work on remote-gateway backends)
+
+### Fixed
+
+- **Tool-approval prompts on a remote-gateway backend now show working approve/deny controls.** When the WebUI was connected to a Hermes gateway that ran the agent, an approval request would appear but its approve/deny action had no backend to respond to, so the buttons did nothing. The WebUI now bridges the approval response to the gateway's runs API: when a session has an active gateway run, the approve/deny choice is forwarded to the gateway (run id is server-derived; the existing auth + CSRF on `/api/approval/respond` is preserved), and the gateway's approval-event capability is probed (and cached for 60s) so the runs-API path is used only when the gateway advertises support. Backends that don't use a gateway are unaffected — the local approval path is unchanged and only runs when no gateway run is active. Gateways too old to advertise approval support surface a clear "upgrade the gateway" message instead of a silent no-op. (#4229, #4203)
+
+## [v0.51.452] — 2026-06-16 — Release PM (reject symlinked memory-file writes)
+
+### Security
+
+- **Memory writes refuse a symlinked target file.** Writing memory (`MEMORY.md` / `USER.md` / `SOUL.md`) now rejects the write if the target path is a symlink, so a symlink planted at the memory path — e.g. via a restored or imported workspace — can no longer redirect a memory write to clobber an arbitrary file outside the memories directory. This extends the symlink-rejection hardening already shipped for skills and plugins (#4217 / #4234 / #4240). A symlinked parent `memories/` directory is intentionally still allowed (symlinking the whole directory is a legitimate setup); only the concrete target file is guarded. (#4242)
+
+## [v0.51.451] — 2026-06-16 — Release PL (show named-profile external sessions in the all-profiles list)
+
+### Fixed
+
+- **The "all profiles" session list now includes CLI / Telegram / API sessions that live under named profiles.** Previously the all-profiles view enumerated only the active profile's external (non-WebUI) sessions, so a session started by a named-profile CLI, Telegram, or API client never appeared even with "all profiles" selected. Enumeration now scans across profiles when (and only when) the request explicitly asks for the all-profiles view. The cross-profile boundary is preserved: an unqualified single-profile request still resolves to the active profile's `state.db` (a foreign session id returns 404, the same not-found shape as a missing session), and the client only sends the cross-profile import fields from the all-profiles view — mirroring the active-profile scoping already applied to session detail loads and exports. (#4067, #4065)
+
+## [v0.51.450] — 2026-06-16 — Release PK (preserve custom provider namespace prefixes in model normalization)
+
+### Fixed
+
+- **Custom provider model namespaces are no longer silently rewritten to a first-party family.** `_normalize_provider_id` matched provider prefixes with a broad `startswith()`, so a custom namespace that merely *began* with a first-party token — `gemini_cli/...`, `gpt_proxy/...`, `claude-relay/...` — collapsed into the first-party family (`google`/`openai`/`anthropic`). On session reload this triggered a spurious "stale model repair" that swapped the model to the profile default and cleared the displayed turn metrics (`last_prompt_tokens`, `threshold_tokens`), making the composer context indicator ring disappear for custom models. Prefix matching is now restricted to an exact token or a prefix followed strictly by an accepted namespace delimiter (`:` or `/`), and genuine hyphenated first-party aliases (`openai-api`, `openai-codex`, `google-gemini`, `google-ai-studio`, `claude-code`) are mapped explicitly so they still resolve. The same bare-prefix collision was also fixed on the chat-send path (the streaming profile-context resolver had its own ungated loop), and the bare-prefix family detection no longer fires on namespaced model IDs. (#4278)
+
+## [v0.51.449] — 2026-06-16 — Release PJ (stop recovered turns replaying into later context)
+
+### Fixed
+
+- **Interrupted conversations no longer replay the prior message into every later turn.** After a session was interrupted (gateway restart or tool-iteration limit) and recovered, the WebUI could re-inject the recovered user message into the context of each subsequent turn. The state-database context reconciliation now recognizes a recovered turn as a valid single-row aligned prefix (gated strictly to a recovered user turn at the head of the window), so it's matched and de-duplicated instead of replayed. (#4283)
+
+## [v0.51.448] — 2026-06-16 — Release PI (fix blank transcript viewport regression)
+
+### Fixed
+
+- **The chat transcript no longer renders blank after a reply in long conversations.** A regression from the message-list virtualization (v0.51.423, #3714) could leave the transcript viewport empty after an assistant reply settled — the data was still there, but you had to click "Newest Message" to force it back, and scrolling up could blank it again. The viewport now captures and restores a row anchor across re-renders (instead of only a raw scroll offset), and detects the blank state to force a one-time re-render recovery. (#4277)
+
+## [v0.51.447] — 2026-06-15 — Release PH (toolset selector shows the active profile's defaults)
+
+### Added
+
+- **The composer toolset selector now surfaces the active profile's toolset defaults.** When a conversation has no per-session toolset override it shows "profile defaults" (the toolsets the active profile enables) rather than a generic label, and the dropdown lists the configured MCP servers with their current state plus Apply / "Use profile defaults" controls. Picking toolsets is scoped to the current session only (it never mutates the profile or global config); when no MCP toolsets are configured it falls back cleanly to the global view. The selector appears only when the composer footer has room (wide desktop) and is hidden on narrow desktop and mobile so the footer never crowds. (#3100)
+
+## [v0.51.446] — 2026-06-15 — Release PG (model picker "show all" for large provider catalogs)
+
+### Added
+
+- **The model picker now caps large provider lists and offers "Show all".** A provider group with more than 25 models shows the first 15 plus a "Show all N models" row that expands the rest in place, so the picker stays scannable for big catalogs (e.g. OpenRouter) without hiding anything — search already matches the hidden tail before expansion. The group heading carries the overflow count ("Provider (15 of 30)"); individual rows show the plain provider label. The Settings, scheduled-job, profile, and auxiliary-model selectors also include the full catalog (visible + overflow), so no model is dropped from those dropdowns. Groups of 25 or fewer are unchanged. (#3691)
+
+## [v0.51.445] — 2026-06-15 — Release PF (scope gateway watcher to the active profile)
+
+### Fixed
+
+- **The gateway session watcher is now per-profile, so switching profiles in one tab no longer breaks gateway live-updates in another.** The watcher that drives gateway session SSE updates was a single process-wide instance: when one browser tab switched profiles it stopped and replaced that global watcher, silently stealing the gateway event stream from tabs on other profiles. Gateway watchers are now keyed by profile (a registry, not a singleton), each request's SSE stream subscribes to its own active profile's watcher, a profile switch only restarts that profile's watcher (never one another tab is observing), and idle watchers with no subscribers are reaped. Switching profiles in a tab now also reconnects that tab's own gateway stream to the new profile. (#2848)
+
+## [v0.51.444] — 2026-06-15 — Release PE (refresh sidebar session list on uncommitted writes + settings changes)
+
+### Fixed
+
+- **The sidebar session list now refreshes when new sessions are written but not yet checkpointed, and when settings change.** When CLI-session visibility is on, the `/api/sessions` response is cached and invalidated by a fingerprint of its source files. That fingerprint stamped the main `state.db` and the session index but not the SQLite write-ahead log (`state.db-wal`) — so a freshly-written CLI/agent session that was still in the WAL (not yet checkpointed into the main db file) could be missed until the next checkpoint, leaving the sidebar stale. The fingerprint now also stamps `state.db-wal` and the settings file, so those changes invalidate the cache immediately. Invalidation stays scoped to the CLI-session cache keys. (#4268)
+
+## [v0.51.443] — 2026-06-15 — Release PD (scope session by-id reads + exports to active profile)
+
+### Security
+
+- **Direct session reads and exports now honor the active-profile boundary, like the session list already does.** `/api/sessions` scopes its rows to the request's active Hermes profile, but two by-id endpoints did not: `GET /api/session?session_id=…` (transcript/metadata read, including the CLI-session fallback) and `GET /api/session/export?session_id=…` (full transcript JSON download) loaded a session purely by id. A stale, leaked, or guessed session id from another profile could therefore disclose that profile's transcript or export. Both paths now apply the same `_profiles_match(...)` check and return the same `404` used for missing sessions (so they don't reveal foreign-profile session existence). Default/legacy-root profile aliasing is preserved, and the `/api/sessions` list path is unchanged. (#3982, #3991)
+
+## [v0.51.442] — 2026-06-15 — Release PC (require auth for passkey enrollment)
+
+### Security
+
+- **First passkey enrollment is now gated like first-password onboarding.** On a `HERMES_WEBUI_PASSKEY=1` instance with auth not yet configured, a remote unauthenticated caller could register the *first* passkey credential and claim the account before the legitimate operator. The passkey registration endpoints now apply the same onboarding gate as first-password setup: only loopback/private-network requests (or an explicit `HERMES_WEBUI_ONBOARDING_OPEN=1` operator opt-in) can bootstrap the first passkey, and remote/tunnel callers are rejected. The locality check uses the raw socket address (forwarded headers are ignored unless `HERMES_WEBUI_TRUST_FORWARDED_FOR=1`), so it can't be spoofed via `X-Forwarded-For`/`Host`. Once auth is enabled, additional enrollment requires a valid authenticated session. The passkey *login* path is unchanged. (#4171)
+
+## [v0.51.441] — 2026-06-15 — Release PB (honest notification-permission controls)
+
+### Fixed
+
+- **Notification permission controls now reflect the real browser state (#4118).** The "Enable notifications" button in Settings was a silent no-op once permission had already been granted or denied — it gave no feedback and didn't show the current state. It now reflects the live `Notification.permission` value: the button is disabled with an explanatory tooltip/aria-label when permission is already granted, surfaces the denied/unsupported states honestly, and the granted branch confirms with a toast instead of doing nothing.
+
+## [v0.51.440] — 2026-06-15 — Release PA (advanced per-model options + auxiliary model routing)
+
+### Added
+
+- **Advanced model options and auxiliary model routing in Settings → Preferences.** A gear button next to the main model selector opens a "Main model options" dialog (Base URL override, Extra body JSON merged into the request, API key override — all the fields that actually take effect). An "Auxiliary Models" section lets you route side-tasks (vision, compression, web-extract, session-search, approval, MCP, title-generation, skills-hub, curator, kanban-decomposer, profile-describer, triage-specifier) to specific models/providers, each with its own advanced options (including per-task timeout / download-timeout / max-concurrency). API keys are write-only (never echoed back), `extra_body` must be a valid JSON object (malformed input is rejected with a 400), and the main model's `extra_body` is now passed through to the agent at request time via `request_overrides`. (#3097)
+
+## [v0.51.439] — 2026-06-15 — Release OZ (Insights dashboard polish)
+
+### Changed
+
+- **Dashboard aesthetic refinements on the Insights page (#766).** Model names in the usage table render bold and cost/token figures use tabular-nums for cleaner column alignment; the per-model table columns are tightened. Error alerts (gateway-offline, cron needs-attention) now use the error accent color with a slightly heavier border, while the informational cron-script-job banner stays amber — sharpening the info-vs-problem distinction. Minor profile-card and workspace-divider spacing polish. (#766)
+
+## [v0.51.438] — 2026-06-15 — Release OY (model cost/health comparison table on Insights)
+
+### Added
+
+- **The Insights panel has an opt-in "Model health comparison" reference table.** A collapsible (default-collapsed) table listing common models with their provider, input/output cost per 1M tokens, and a plain-English replacement/when-to-use guide — a quick at-a-glance cost reference alongside the usage analytics. Every cell is HTML-escaped; the data is static (no new API calls), and the four new i18n keys are present across all locales. (#691)
+
+## [v0.51.437] — 2026-06-15 — Release OX (Escape blurs the composer for keyboard nav)
+
+### Fixed
+
+- **Pressing Escape in the message composer now blurs it so j/k message navigation works.** Keyboard-only users could not reach the j/k session-navigation shortcuts while the composer held focus (it swallowed the keys). Escape now blurs the composer when it's focused — after any higher-priority Escape action (closing the slash-command dropdown, dismissing onboarding/settings, cancelling a message edit, clearing the session search) still runs first. The slash-command dropdown's Escape handler now stops propagation so closing it doesn't also blur in the same keystroke, and the blur is skipped while an IME candidate window is composing (so Escape dismisses the candidate for CJK input instead of blurring). (#3952)
+
+## [v0.51.436] — 2026-06-15 — Release OW (cron sessions mark unread on new runs)
+
+### Fixed
+
+- **Cron sessions in the sidebar now mark unread when a new run lands, attributed to the correct job.** When a scheduled job finished, the sidebar's unread resolver matched a session id against `cron_<jobid>_` prefixes built only from the just-completed jobs, so a job whose id is a prefix of another's (e.g. `backup` vs `backup_full`) could steal the other's session (`cron_backup_full_…` resolving to `backup`). The resolver now considers all known job ids and attributes each session to the longest matching job-id prefix, which is provably unambiguous (the matching prefixes of a single session id are nested, so the longest is unique). The lookup is a read-only `state.db` scan that only runs when a cron actually completed, degrades gracefully on contention, and filters in Python rather than via SQL `LIKE`. (#3460)
+
+## [v0.51.435] — 2026-06-15 — Release OV (supported local pytest runner)
+
+### Added
+
+- **`./scripts/test.sh` runs the suite in a repo-local, version-correct virtualenv.** The runner finds a supported interpreter (Python 3.11–3.13), creates or rebuilds a repo-local `.venv` when needed, installs the pinned dev dependencies from the new `requirements-dev.txt`, and then runs pytest — so contributors get a one-command, correctly-versioned test path instead of a bare `pytest` that may collect against an unsupported system Python. `tests/conftest.py` also fails fast with a clear message if pytest is launched on an unsupported interpreter, and the runner refuses to create or `--clear` a virtualenv through a symlinked `.venv` (which would otherwise empty the symlink's target). Dev-tooling only — no runtime or app behavior changes. (#3908)
+
 ## [v0.51.434] — 2026-06-15 — Release OU (reject symlinked skill files on save)
 
 ### Fixed

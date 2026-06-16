@@ -255,6 +255,25 @@ function _markSessionCompletionUnread(sid, messageCount = 0) {
   _saveSessionCompletionUnread();
 }
 
+function _markSessionCompletionUnreadIfBackground(sid, messageCount = null) {
+  if (!sid) return false;
+  let count = Number.isFinite(messageCount) ? Number(messageCount) : NaN;
+  if (!Number.isFinite(count)) {
+    const snapshot = _sessionListSnapshotById.get(sid)
+      || (_allSessions || []).find(s => s && s.session_id === sid)
+      || null;
+    count = Number(snapshot && snapshot.message_count) || 0;
+  }
+  if (_isSessionActivelyViewedForList(sid)) {
+    _setSessionViewedCount(sid, count);
+    if (typeof renderSessionListFromCache === 'function') renderSessionListFromCache();
+    return false;
+  }
+  _markSessionCompletionUnread(sid, count);
+  if (typeof renderSessionListFromCache === 'function') renderSessionListFromCache();
+  return true;
+}
+
 function _clearSessionCompletionUnread(sid) {
   if (!sid) return;
   const unread = _getSessionCompletionUnread();
@@ -1396,6 +1415,15 @@ function _isMessagingSession(session) {
  */
 function _isExternalSession(session) {
   return !!(session && (session.is_cli_session || _isMessagingSession(session)));
+}
+
+function _externalImportPayload(session) {
+  const payload = {session_id: session.session_id};
+  if (_showAllProfiles && session && typeof session.profile === 'string' && session.profile) {
+    payload.all_profiles = true;
+    payload.profile = session.profile;
+  }
+  return payload;
 }
 
 function _isReadOnlySession(session) {
@@ -3921,6 +3949,7 @@ async function probeGatewaySSEStatus(){
     if(resp.ok && data.watcher_running){
       stopGatewayPollFallback();
       _gatewaySSEWarningShown = false;
+      if(!_gatewaySSE && typeof EventSource!=='undefined' && !(document&&document.hidden)) startGatewaySSE();
       return;
     }
     if(resp.status === 503 || data.watcher_running === false){
@@ -3981,7 +4010,7 @@ function startGatewaySSE(){
               // Capture active session ID before async fetch — race guard.
               // If the user switches sessions while the fetch is in-flight, discard the result.
               const activeSid = S.session.session_id;
-              api('/api/session/import_cli',{method:'POST',body:JSON.stringify({session_id:activeSid})})
+              api('/api/session/import_cli',{method:'POST',body:JSON.stringify(_externalImportPayload(S.session))})
                 .then(res=>{
                   if(!S.session || S.session.session_id !== activeSid) return;
                   if(res && res.session && Array.isArray(res.session.messages)){
@@ -5638,7 +5667,7 @@ function renderSessionListFromCache(){
         row.onclick=async(e)=>{
           e.stopPropagation();
           if(_isExternalSession(seg)){
-            try{await api('/api/session/import_cli',{method:'POST',body:JSON.stringify({session_id:seg.session_id})});}
+            try{await api('/api/session/import_cli',{method:'POST',body:JSON.stringify(_externalImportPayload(seg))});}
             catch(_e){ /* read-only fallback */ }
           }
           await loadSession(seg.session_id, {skipLineageResolve:true});
@@ -5655,7 +5684,7 @@ function renderSessionListFromCache(){
       const sortedChildren=[...s._child_sessions].sort((a,b)=>_sessionTimestampMs(b)-_sessionTimestampMs(a));
       const openChildSession=async(childSession)=>{
         if(_isExternalSession(childSession)){
-          try{await api('/api/session/import_cli',{method:'POST',body:JSON.stringify({session_id:childSession.session_id})});}
+          try{await api('/api/session/import_cli',{method:'POST',body:JSON.stringify(_externalImportPayload(childSession))});}
           catch(_e){ /* read-only fallback */ }
         }
         await loadSession(childSession.session_id, {skipLineageResolve:true});
@@ -6285,7 +6314,7 @@ function renderSessionListFromCache(){
         // WebUI store first so /api/chat/start finds a persisted session.
         if(_isExternalSession(s)){
           try{
-            await api('/api/session/import_cli',{method:'POST',body:JSON.stringify({session_id:s.session_id})});
+            await api('/api/session/import_cli',{method:'POST',body:JSON.stringify(_externalImportPayload(s))});
           }catch(e){ /* import failed -- fall through to read-only view */ }
         }
         try{
