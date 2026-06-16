@@ -3,6 +3,12 @@
 
 ## [Unreleased]
 
+## [v0.51.458] — 2026-06-16 — Release PS (long sessions stop hanging)
+
+### Fixed
+
+- **Server no longer hangs on long tool-call sessions (#4314).** The transcript-backfill loop in `_merge_display_messages_after_agent_result` was O(D²·C): it re-ran `_message_identity` (`json.dumps`) for every future display row on every outer iteration and used an O(N) list-slice membership test. On sessions with many tool-call turns this pegged a CPU core, held the GIL, and stalled the `/api/sessions` sidebar poll 5–11s per cycle — the WebUI appeared hung on the current turn. The loop now precomputes display identities once and keeps an O(1) multiset mirror of the remaining context keys, making it O(D²). Behavior is unchanged: the multiset preserves the exact membership semantics of the original list-slice (including duplicate-identity turns and empty rows), verified by a differential regression test. Thanks @psanger.
+
 ## [v0.51.457] — 2026-06-16 — Release PR (gateway watcher can't brick startup)
 
 ### Fixed

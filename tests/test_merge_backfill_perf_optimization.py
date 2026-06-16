@@ -14,8 +14,6 @@ inputs that force duplicate identities and None keys.
 import sys
 from pathlib import Path
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from api import streaming  # noqa: E402
