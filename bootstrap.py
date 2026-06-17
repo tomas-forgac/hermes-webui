@@ -119,6 +119,19 @@ def _is_cert_verification_error(exc: Exception) -> bool:
     return isinstance(reason, ssl.SSLCertVerificationError)
 
 
+def _unverified_ssl_context() -> ssl.SSLContext:
+    """An SSL context that accepts self-signed / untrusted certs.
+
+    Uses the public API (mirrors tests/test_tls_support.py) rather than the
+    private ssl._create_unverified_context(). Only used for the loopback health
+    probe — never for client traffic.
+    """
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
 def is_wsl() -> bool:
     if platform.system() != "Linux":
         return False
@@ -341,7 +354,7 @@ def wait_for_health(url: str, timeout: float = 25.0) -> bool:
 
     while time.time() < deadline:
         try:
-            ctx = ssl._create_unverified_context() if insecure else None
+            ctx = _unverified_ssl_context() if insecure else None
             with urllib.request.urlopen(url, timeout=2, context=ctx) as response:  # nosec B310
                 if b'"status": "ok"' in response.read():
                     return True
