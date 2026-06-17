@@ -120,21 +120,59 @@ case "${_hermes_host}" in
   0.0.0.0|""|::|"[::]") _hermes_probe_host="127.0.0.1" ;;
   *) _hermes_probe_host="${_hermes_host}" ;;
 esac
-_hermes_health_url="http://${_hermes_probe_host}:${_hermes_port}/health"
+
+# Resolve the scheme the server will serve. server.py serves https iff BOTH
+# HERMES_WEBUI_TLS_CERT and HERMES_WEBUI_TLS_KEY are set (see api/config.py);
+# probing http:// against an https listener fails, so mirror the scheme here.
+_hermes_scheme="http"
+if [[ -n "${HERMES_WEBUI_TLS_CERT:-}" && -n "${HERMES_WEBUI_TLS_KEY:-}" ]]; then
+  _hermes_scheme="https"
+fi
+_hermes_health_url="${_hermes_scheme}://${_hermes_probe_host}:${_hermes_port}/health"
+
+# Optional escape hatch: skip TLS verification on the probe up front (quietly),
+# e.g. when the user already knows the cert is self-signed.
+_hermes_insecure=""
+case "${HERMES_WEBUI_TLS_INSECURE_PROBE:-}" in
+  1|true|TRUE|yes|YES|on|ON) _hermes_insecure="1" ;;
+esac
 
 # Best-effort probe. If neither curl nor wget is present we skip the check and
 # fall through to the normal launch (unchanged behavior). Short 2s timeout so a
-# normal cold start is not delayed.
+# normal cold start is not delayed. For an https endpoint with a self-signed /
+# untrusted cert (common for home use), curl/wget reject the cert by default, so
+# we retry once without verification and warn — this is a loopback health probe,
+# not a trust decision for browser clients.
 _hermes_already_up=""
 if command -v curl >/dev/null 2>&1; then
-  _hermes_already_up="$(curl -fsS --max-time 2 "${_hermes_health_url}" 2>/dev/null || true)"
+  if [[ "${_hermes_scheme}" == "https" && -n "${_hermes_insecure}" ]]; then
+    _hermes_already_up="$(curl -fsS -k --max-time 2 "${_hermes_health_url}" 2>/dev/null || true)"
+  else
+    _hermes_already_up="$(curl -fsS --max-time 2 "${_hermes_health_url}" 2>/dev/null || true)"
+    if [[ -z "${_hermes_already_up}" && "${_hermes_scheme}" == "https" ]]; then
+      _hermes_already_up="$(curl -fsS -k --max-time 2 "${_hermes_health_url}" 2>/dev/null || true)"
+      if [[ -n "${_hermes_already_up}" ]]; then
+        echo "[!!] WARNING: server TLS certificate is not trusted (self-signed?); health check completed without certificate verification (loopback only)." >&2
+      fi
+    fi
+  fi
 elif command -v wget >/dev/null 2>&1; then
-  _hermes_already_up="$(wget -qO- --timeout=2 --tries=1 "${_hermes_health_url}" 2>/dev/null || true)"
+  if [[ "${_hermes_scheme}" == "https" && -n "${_hermes_insecure}" ]]; then
+    _hermes_already_up="$(wget -qO- --timeout=2 --tries=1 --no-check-certificate "${_hermes_health_url}" 2>/dev/null || true)"
+  else
+    _hermes_already_up="$(wget -qO- --timeout=2 --tries=1 "${_hermes_health_url}" 2>/dev/null || true)"
+    if [[ -z "${_hermes_already_up}" && "${_hermes_scheme}" == "https" ]]; then
+      _hermes_already_up="$(wget -qO- --timeout=2 --tries=1 --no-check-certificate "${_hermes_health_url}" 2>/dev/null || true)"
+      if [[ -n "${_hermes_already_up}" ]]; then
+        echo "[!!] WARNING: server TLS certificate is not trusted (self-signed?); health check completed without certificate verification (loopback only)." >&2
+      fi
+    fi
+  fi
 fi
 
 if [[ -n "${_hermes_already_up}" ]]; then
   cat >&2 <<EOF
-[==] Hermes WebUI is already running at http://${_hermes_probe_host}:${_hermes_port}
+[==] Hermes WebUI is already running at ${_hermes_scheme}://${_hermes_probe_host}:${_hermes_port}
      The server was NOT started again (start.sh does not double-start).
 
      If you need to restart the server, do the following:

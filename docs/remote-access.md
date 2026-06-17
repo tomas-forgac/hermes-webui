@@ -73,3 +73,39 @@ or VM host may be needed for longer-running sessions.
 > `HERMES_WEBUI_PASSWORD`.
 
 ---
+
+## Serving over HTTPS (TLS)
+
+You can have the WebUI terminate TLS itself by pointing it at a certificate and
+private key:
+
+```bash
+HERMES_WEBUI_TLS_CERT=/path/to/cert.pem \
+HERMES_WEBUI_TLS_KEY=/path/to/key.pem \
+./start.sh
+```
+
+TLS is enabled only when **both** `HERMES_WEBUI_TLS_CERT` and
+`HERMES_WEBUI_TLS_KEY` are set; the server then serves `https://` and the
+launchers print `https://` URLs.
+
+**Self-signed certificates (home use).** The launcher health / "already
+running" checks (`start.sh`, `bootstrap.py`, `ctl.sh status`, the WSL autostart
+script, and the Docker `HEALTHCHECK`) follow the same scheme the server serves.
+Because `curl` / `wget` / `urllib` reject untrusted certificates by default, an
+HTTPS probe is first attempted **with** verification and — if the certificate is
+self-signed or otherwise untrusted — transparently retried **without**
+verification, printing a one-line warning. This keeps the loopback health check
+working without weakening certificate trust for actual browser clients.
+
+To skip verification on the probe up front (quietly, e.g. when you already know
+the certificate is self-signed), set:
+
+```bash
+HERMES_WEBUI_TLS_INSECURE_PROBE=1
+```
+
+This only affects the local health probe; browsers still see the real
+certificate and will warn about a self-signed cert as usual.
+
+---

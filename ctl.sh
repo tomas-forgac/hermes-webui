@@ -400,12 +400,49 @@ stop_cmd() {
 }
 
 _health_line() {
-  local host="$1" port="$2" url result
-  url="http://${host}:${port}/health"
-  if command -v curl >/dev/null 2>&1; then
-    if result="$(curl -fsS --max-time 2 "${url}" 2>/dev/null)"; then
-      if command -v python3 >/dev/null 2>&1; then
-        printf '%s' "${result}" | python3 -c 'import json,sys
+  local host="$1" port="$2" url result scheme insecure note line
+  # Mirror the server scheme: https iff both TLS cert and key are set
+  # (see api/config.py). Probing http:// against an https listener fails.
+  scheme="http"
+  if [[ -n "${HERMES_WEBUI_TLS_CERT:-}" && -n "${HERMES_WEBUI_TLS_KEY:-}" ]]; then
+    scheme="https"
+  fi
+  url="${scheme}://${host}:${port}/health"
+  insecure=""
+  case "${HERMES_WEBUI_TLS_INSECURE_PROBE:-}" in
+    1|true|TRUE|yes|YES|on|ON) insecure="1" ;;
+  esac
+
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "unknown (curl not found; ${url})"
+    return 0
+  fi
+
+  result=""
+  note=""
+  if [[ "${scheme}" == "https" && -n "${insecure}" ]]; then
+    result="$(curl -fsS -k --max-time 2 "${url}" 2>/dev/null)" || result=""
+    [[ -n "${result}" ]] && note=" [cert not verified]"
+  elif result="$(curl -fsS --max-time 2 "${url}" 2>/dev/null)"; then
+    :
+  elif [[ "${scheme}" == "https" ]]; then
+    # Untrusted/self-signed cert: retry once without verification (loopback).
+    if result="$(curl -fsS -k --max-time 2 "${url}" 2>/dev/null)"; then
+      note=" [self-signed cert: not verified]"
+    else
+      result=""
+    fi
+  else
+    result=""
+  fi
+
+  if [[ -z "${result}" ]]; then
+    echo "unreachable (${url})"
+    return 0
+  fi
+
+  if command -v python3 >/dev/null 2>&1; then
+    line="$(printf '%s' "${result}" | python3 -c 'import json,sys
 try:
     data=json.load(sys.stdin)
     sessions=data.get("sessions", data.get("session_count", "?"))
@@ -413,21 +450,19 @@ try:
     status=data.get("status", "ok")
     print(f"ok ({sessions} sessions, {active} active streams)" if status == "ok" else status)
 except Exception:
-    print("ok")'
-      else
-        echo "ok"
-      fi
-    else
-      echo "unreachable (${url})"
-    fi
+    print("ok")')"
   else
-    echo "unknown (curl not found; ${url})"
+    line="ok"
   fi
+  printf '%s%s\n' "${line}" "${note}"
 }
 
 status_cmd() {
   ensure_home
   _load_state_if_present
+  # Load .env (preserving any already-set env) so TLS cert/key are visible and
+  # the health probe can pick the correct scheme.
+  _load_repo_dotenv_preserving_env
   local host="${HOST:-${HERMES_WEBUI_HOST:-127.0.0.1}}"
   local port="${PORT:-${HERMES_WEBUI_PORT:-8787}}"
   local log_path="${LOG_FILE}"
