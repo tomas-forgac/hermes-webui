@@ -102,10 +102,9 @@ ENV HERMES_WEBUI_PORT=8787
 EXPOSE 8787
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD sh -c 'if [ -n "$HERMES_WEBUI_TLS_CERT" ] && [ -n "$HERMES_WEBUI_TLS_KEY" ]; then scheme=https; else scheme=http; fi; url="$scheme://localhost:${HERMES_WEBUI_PORT:-8787}/health"; curl -fsS --max-time 4 "$url" >/dev/null 2>&1 || { [ "$scheme" = https ] && curl -fsSk --max-time 4 "$url" >/dev/null 2>&1; } || exit 1'
+  CMD sh -c 'if [ -n "$HERMES_WEBUI_TLS_CERT" ] && [ -n "$HERMES_WEBUI_TLS_KEY" ]; then scheme=https; else scheme=http; fi; url="$scheme://localhost:${HERMES_WEBUI_PORT:-8787}/health"; curl -fsS --max-time 2 "$url" >/dev/null 2>&1 || { [ "$scheme" = https ] && curl -fsSk --max-time 2 "$url" >/dev/null 2>&1; } || exit 1'
 
 # docker_init.bash performs root-only bind-mount setup, then drops to hermeswebui
 # before starting the WebUI server. The production image does not ship sudo.
 USER root
 CMD ["/hermeswebui_init.bash"]
-

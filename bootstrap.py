@@ -344,13 +344,11 @@ def wait_for_health(url: str, timeout: float = 25.0) -> bool:
     # back to an unverified probe and warn — this is a loopback health check
     # against the server we just launched, not a trust decision for clients.
     insecure = is_https and _insecure_probe_requested()
-    warned = False
-    if insecure:
-        warn(
-            "TLS certificate verification disabled for the health probe via "
-            "HERMES_WEBUI_TLS_INSECURE_PROBE (loopback health check only)."
-        )
-        warned = True
+    # When the user explicitly opts in via HERMES_WEBUI_TLS_INSECURE_PROBE we
+    # stay quiet here — matching start.sh / ctl.sh and docs/remote-access.md,
+    # which document this as the "skip verification up front, quietly" escape
+    # hatch. We only warn below on an *unexpected* self-signed fallback.
+    warned = insecure
 
     while time.time() < deadline:
         try:

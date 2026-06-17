@@ -152,8 +152,27 @@ class TestWaitForHealthSelfSigned(unittest.TestCase):
             "wait_for_health should succeed against a self-signed https server",
         )
         self.assertTrue(
-            any("certificate" in m.lower() for m in captured),
+            any("not trusted (self-signed?)" in m.lower() for m in captured),
             f"expected a self-signed cert warning, got: {captured}",
+        )
+
+    def test_wait_for_health_https_self_signed_with_explicit_insecure_is_quiet(self):
+        port = _find_free_port()
+        self._proc = _start_server(port, cert=self._cert, key=self._key)
+        url = f"https://127.0.0.1:{port}/health"
+        os.environ["HERMES_WEBUI_TLS_INSECURE_PROBE"] = "1"
+
+        captured = []
+        self.bs.warn = lambda msg: captured.append(msg)  # type: ignore[assignment]
+
+        self.assertTrue(
+            self.bs.wait_for_health(url, timeout=15.0),
+            "explicit insecure probe should still succeed against self-signed https",
+        )
+        self.assertEqual(
+            captured,
+            [],
+            "explicit HERMES_WEBUI_TLS_INSECURE_PROBE should suppress probe warnings",
         )
 
     def test_wait_for_health_http_unaffected(self):
