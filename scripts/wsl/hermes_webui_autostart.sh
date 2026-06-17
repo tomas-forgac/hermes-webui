@@ -16,7 +16,13 @@ HERMES_WEBUI_LOG_DIR="${HERMES_WEBUI_LOG_DIR:-${HOME}/.hermes/webui/logs}"
 HERMES_WEBUI_HOST="${HERMES_WEBUI_HOST:-127.0.0.1}"
 HERMES_WEBUI_PORT="${HERMES_WEBUI_PORT:-8787}"
 HERMES_WEBUI_HEALTH_HOST="${HERMES_WEBUI_HEALTH_HOST:-127.0.0.1}"
-HERMES_WEBUI_HEALTH_URL="${HERMES_WEBUI_HEALTH_URL:-http://${HERMES_WEBUI_HEALTH_HOST}:${HERMES_WEBUI_PORT}/health}"
+# Mirror the server scheme: https iff both TLS cert and key are set
+# (see api/config.py). Probing http:// against an https listener fails.
+HERMES_WEBUI_HEALTH_SCHEME="http"
+if [[ -n "${HERMES_WEBUI_TLS_CERT:-}" && -n "${HERMES_WEBUI_TLS_KEY:-}" ]]; then
+  HERMES_WEBUI_HEALTH_SCHEME="https"
+fi
+HERMES_WEBUI_HEALTH_URL="${HERMES_WEBUI_HEALTH_URL:-${HERMES_WEBUI_HEALTH_SCHEME}://${HERMES_WEBUI_HEALTH_HOST}:${HERMES_WEBUI_PORT}/health}"
 HERMES_WEBUI_PID_FILE="${HERMES_WEBUI_PID_FILE:-${HERMES_WEBUI_LOG_DIR}/hermes-webui.pid}"
 HERMES_WEBUI_LOCK_FILE="${HERMES_WEBUI_LOCK_FILE:-/tmp/hermes-webui-autostart.lock}"
 AUTOSTART_LOG="${HERMES_WEBUI_LOG_DIR}/webui_autostart.log"
@@ -33,8 +39,19 @@ log() {
 }
 
 webui_healthy() {
-  command -v curl >/dev/null 2>&1 \
-    && curl -fsS --max-time 3 "${HERMES_WEBUI_HEALTH_URL}" >/dev/null 2>&1
+  command -v curl >/dev/null 2>&1 || return 1
+  curl -fsS --max-time 3 "${HERMES_WEBUI_HEALTH_URL}" >/dev/null 2>&1 && return 0
+  # https with a self-signed/untrusted cert: retry once without verification
+  # (loopback health probe only) unless the URL is plain http.
+  case "${HERMES_WEBUI_HEALTH_URL}" in
+    https://*)
+      if curl -fsS -k --max-time 3 "${HERMES_WEBUI_HEALTH_URL}" >/dev/null 2>&1; then
+        log "Health check passed without TLS certificate verification (self-signed cert?)"
+        return 0
+      fi
+      ;;
+  esac
+  return 1
 }
 
 pid_is_alive() {
