@@ -3,6 +3,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Launcher health checks now work when TLS/HTTPS is enabled, including with self-signed certificates.** When `HERMES_WEBUI_TLS_CERT` + `HERMES_WEBUI_TLS_KEY` are set, `server.py` serves HTTPS, but the launchers' health/"already running" probes were hardcoded to `http://` and erroring out (e.g. `start.sh` reporting failure against an HTTPS listener). The probes in `start.sh`, `bootstrap.py` (`wait_for_health`), `ctl.sh status`, the WSL autostart script, and the Docker `HEALTHCHECK` now follow the same scheme the server serves. Because `curl`/`wget`/`urllib` reject untrusted certificates by default, an HTTPS probe is first attempted with verification and — if the certificate is self-signed/untrusted (common for home setups) — transparently retried without verification while printing a one-line warning (this is a loopback health check, not a trust decision for browser clients). Printed "open this URL" hints now use `https://` under TLS. Set `HERMES_WEBUI_TLS_INSECURE_PROBE=1` to skip verification on the probe up front (quietly). Thanks @tomas-forgac.
+
 ## [v0.51.475] — 2026-06-17 — Release QJ (ElevenLabs TTS engine)
 
 ### Added
