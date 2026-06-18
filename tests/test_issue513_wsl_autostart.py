@@ -41,7 +41,7 @@ def test_wsl_autostart_launcher_has_safe_duplicate_prevention_and_exports_runtim
     assert "flock -n" in script
     assert "HERMES_WEBUI_LOCK_FILE" in script
     assert "HERMES_WEBUI_PID_FILE" in script
-    assert "curl -fsS --max-time 3" in script
+    assert "hermes_webui_probe_health" in script
     assert "bash \"${HERMES_WEBUI_REPO}/start.sh\" --foreground" in script
     assert "nohup" in script
 

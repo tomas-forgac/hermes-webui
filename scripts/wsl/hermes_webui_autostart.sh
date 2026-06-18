@@ -16,7 +16,15 @@ HERMES_WEBUI_LOG_DIR="${HERMES_WEBUI_LOG_DIR:-${HOME}/.hermes/webui/logs}"
 HERMES_WEBUI_HOST="${HERMES_WEBUI_HOST:-127.0.0.1}"
 HERMES_WEBUI_PORT="${HERMES_WEBUI_PORT:-8787}"
 HERMES_WEBUI_HEALTH_HOST="${HERMES_WEBUI_HEALTH_HOST:-127.0.0.1}"
-HERMES_WEBUI_HEALTH_URL="${HERMES_WEBUI_HEALTH_URL:-http://${HERMES_WEBUI_HEALTH_HOST}:${HERMES_WEBUI_PORT}/health}"
+
+# Shared TLS-aware probe (mirrors the server scheme; handles self-signed certs
+# and the HTTP-fallback contract).
+# shellcheck source=../lib/health_probe.sh
+. "${SCRIPT_DIR}/../lib/health_probe.sh"
+
+# Scheme-aware default health URL (https when TLS_CERT/KEY are set), used only
+# for human-readable log messages. Users may still override it explicitly.
+HERMES_WEBUI_HEALTH_URL="${HERMES_WEBUI_HEALTH_URL:-$(hermes_webui_probe_scheme)://${HERMES_WEBUI_HEALTH_HOST}:${HERMES_WEBUI_PORT}/health}"
 HERMES_WEBUI_PID_FILE="${HERMES_WEBUI_PID_FILE:-${HERMES_WEBUI_LOG_DIR}/hermes-webui.pid}"
 HERMES_WEBUI_LOCK_FILE="${HERMES_WEBUI_LOCK_FILE:-/tmp/hermes-webui-autostart.lock}"
 AUTOSTART_LOG="${HERMES_WEBUI_LOG_DIR}/webui_autostart.log"
@@ -33,8 +41,7 @@ log() {
 }
 
 webui_healthy() {
-  command -v curl >/dev/null 2>&1 \
-    && curl -fsS --max-time 3 "${HERMES_WEBUI_HEALTH_URL}" >/dev/null 2>&1
+  hermes_webui_probe_health "${HERMES_WEBUI_HEALTH_HOST}" "${HERMES_WEBUI_PORT}" "/health" 3 >/dev/null 2>&1
 }
 
 pid_is_alive() {

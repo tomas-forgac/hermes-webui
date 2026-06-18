@@ -120,21 +120,20 @@ case "${_hermes_host}" in
   0.0.0.0|""|::|"[::]") _hermes_probe_host="127.0.0.1" ;;
   *) _hermes_probe_host="${_hermes_host}" ;;
 esac
-_hermes_health_url="http://${_hermes_probe_host}:${_hermes_port}/health"
 
-# Best-effort probe. If neither curl nor wget is present we skip the check and
-# fall through to the normal launch (unchanged behavior). Short 2s timeout so a
-# normal cold start is not delayed.
-_hermes_already_up=""
-if command -v curl >/dev/null 2>&1; then
-  _hermes_already_up="$(curl -fsS --max-time 2 "${_hermes_health_url}" 2>/dev/null || true)"
-elif command -v wget >/dev/null 2>&1; then
-  _hermes_already_up="$(wget -qO- --timeout=2 --tries=1 "${_hermes_health_url}" 2>/dev/null || true)"
-fi
+# Best-effort, TLS-aware probe via the shared helper. If neither curl nor wget
+# is present the helper returns non-zero and we fall through to the normal
+# launch (unchanged behavior). Short 2s timeout so a normal cold start is not
+# delayed. The helper mirrors the server scheme (https when TLS_CERT/KEY are
+# set) and handles self-signed certs and the HTTP-fallback contract.
+# shellcheck source=scripts/lib/health_probe.sh
+. "${REPO_ROOT}/scripts/lib/health_probe.sh"
+_hermes_probe_scheme="$(hermes_webui_probe_scheme)"
+_hermes_already_up="$(hermes_webui_probe_health "${_hermes_probe_host}" "${_hermes_port}" "/health" 2 || true)"
 
 if [[ -n "${_hermes_already_up}" ]]; then
   cat >&2 <<EOF
-[==] Hermes WebUI is already running at http://${_hermes_probe_host}:${_hermes_port}
+[==] Hermes WebUI is already running at ${_hermes_probe_scheme}://${_hermes_probe_host}:${_hermes_port}
      The server was NOT started again (start.sh does not double-start).
 
      If you need to restart the server, do the following:
