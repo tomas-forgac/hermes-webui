@@ -164,6 +164,21 @@ def test_helper_https_falls_back_to_http_when_server_is_plain_http(self_signed_c
     assert '"status": "ok"' in res.stdout
 
 
+def test_helper_insecure_optin_falls_back_to_http(self_signed_cert):
+    """Shell helper: insecure opt-in + server serving plain HTTP must still
+    succeed via the HTTP fallback (and stay silent per the opt-in contract)."""
+    cert, key = self_signed_cert
+    with _Server() as srv:  # plain HTTP
+        res = _run_helper("127.0.0.1", srv.port, {
+            "HERMES_WEBUI_TLS_CERT": cert,
+            "HERMES_WEBUI_TLS_KEY": key,
+            "HERMES_WEBUI_TLS_INSECURE_PROBE": "1",
+        })
+    assert res.returncode == 0, res.stderr
+    assert '"status": "ok"' in res.stdout
+    assert res.stderr.strip() == ""
+
+
 # ── bootstrap.py wait_for_health ────────────────────────────────────────────
 
 def test_bootstrap_probe_self_signed(monkeypatch, self_signed_cert):
@@ -184,6 +199,23 @@ def test_bootstrap_probe_http_fallback(monkeypatch, self_signed_cert):
     monkeypatch.setenv("HERMES_WEBUI_TLS_KEY", key)
     bs = _load_bootstrap()
     with _Server() as srv:  # plain HTTP
+        assert bs.wait_for_health(f"https://127.0.0.1:{srv.port}/health", timeout=8)
+
+
+def test_bootstrap_probe_insecure_optin_http_fallback(monkeypatch, self_signed_cert):
+    """Insecure opt-in is set AND the server fell back to plain HTTP.
+
+    The probe must still succeed via the HTTP fallback rather than spinning on
+    unverified HTTPS until timeout. Locks the reachability of the HTTP fallback
+    from inside the insecure-opt-in branch (guards against a future refactor
+    that moves the fallback under the non-opt-in ``else``).
+    """
+    cert, key = self_signed_cert
+    monkeypatch.setenv("HERMES_WEBUI_TLS_CERT", cert)
+    monkeypatch.setenv("HERMES_WEBUI_TLS_KEY", key)
+    monkeypatch.setenv("HERMES_WEBUI_TLS_INSECURE_PROBE", "1")
+    bs = _load_bootstrap()
+    with _Server() as srv:  # plain HTTP server, no TLS
         assert bs.wait_for_health(f"https://127.0.0.1:{srv.port}/health", timeout=8)
 
 

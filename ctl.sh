@@ -62,6 +62,8 @@ _load_repo_dotenv_preserving_env() {
   # `ctl.sh status` can print anything.  Mirrors the guard start.sh uses.
   local _ctl_env_filtered
   _ctl_env_filtered="$(mktemp "${TMPDIR:-/tmp}/hermes-webui-ctl-env.XXXXXX")"
+  # shellcheck disable=SC2064
+  trap "rm -f '${_ctl_env_filtered}'" RETURN
   grep -vE '^[[:space:]]*(export[[:space:]]+)?(UID|GID|EUID|EGID|PPID)=' "${env_file}" > "${_ctl_env_filtered}" || true
   # shellcheck source=/dev/null
   source "${_ctl_env_filtered}"
